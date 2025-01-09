@@ -846,8 +846,6 @@ std::vector<std::pair<unsigned int, unsigned int>>
 FE_SimplexP<dim, spacedim>::hp_vertex_dof_identities(
   const FiniteElement<dim, spacedim> &fe_other) const
 {
-  AssertDimension(dim, 2);
-
   if (dynamic_cast<const FE_SimplexP<dim, spacedim> *>(&fe_other) != nullptr)
     {
       // there should be exactly one single DoF of each FE at a vertex, and
@@ -891,8 +889,6 @@ std::vector<std::pair<unsigned int, unsigned int>>
 FE_SimplexP<dim, spacedim>::hp_line_dof_identities(
   const FiniteElement<dim, spacedim> &fe_other) const
 {
-  AssertDimension(dim, 2);
-
   if (const FE_SimplexP<dim, spacedim> *fe_p_other =
         dynamic_cast<const FE_SimplexP<dim, spacedim> *>(&fe_other))
     {
@@ -901,14 +897,24 @@ FE_SimplexP<dim, spacedim>::hp_line_dof_identities(
       // Therefore, read the points in unit_support_points for the
       // first coordinate direction. For FE_SimplexP, they are currently
       // hard-coded and we iterate over points on the first line which begin
-      // after the 3 vertex points in the complete list of unit support points
+      // after the vertex points in the complete list of unit support points
 
       std::vector<std::pair<unsigned int, unsigned int>> identities;
 
+      const auto         dpo = get_dpo_vector_fe_p(dim, this->degree);
+      const unsigned int n_vertex_dofs =
+        this->reference_cell().n_vertices() * dpo[0];
+
+      const auto dpo_other = get_dpo_vector_fe_p(dim, fe_p_other->degree);
+      const unsigned int n_vertex_dofs_other =
+        fe_p_other->reference_cell().n_vertices() * dpo_other[0];
+
       for (unsigned int i = 0; i < this->degree - 1; ++i)
         for (unsigned int j = 0; j < fe_p_other->degree - 1; ++j)
-          if (std::fabs(this->unit_support_points[i + 3][0] -
-                        fe_p_other->unit_support_points[i + 3][0]) < 1e-14)
+          if (std::fabs(
+                this->unit_support_points[i + n_vertex_dofs][0] -
+                fe_p_other->unit_support_points[i + n_vertex_dofs_other][0]) <
+              1e-14)
             identities.emplace_back(i, j);
           else
             {
@@ -934,7 +940,7 @@ FE_SimplexP<dim, spacedim>::hp_line_dof_identities(
       // ordering of the line support points in the first direction (i.e.,
       // x-direction), which we access between index 1 and p-1 (index 0 and p
       // are vertex dofs). For FE_SimplexP, they are currently hard-coded and we
-      // iterate over points on the first line which begin after the 3 vertex
+      // iterate over points on the first line which begin after the vertex
       // points in the complete list of unit support points
 
       const std::vector<unsigned int> &index_map_inverse_q_other =
@@ -942,9 +948,13 @@ FE_SimplexP<dim, spacedim>::hp_line_dof_identities(
 
       std::vector<std::pair<unsigned int, unsigned int>> identities;
 
+      const auto         dpo = get_dpo_vector_fe_p(dim, this->degree);
+      const unsigned int n_vertex_dofs =
+        this->reference_cell().n_vertices() * dpo[0];
+
       for (unsigned int i = 0; i < this->degree - 1; ++i)
         for (unsigned int j = 0; j < fe_q_other->degree - 1; ++j)
-          if (std::fabs(this->unit_support_points[i + 3][0] -
+          if (std::fabs(this->unit_support_points[i + n_vertex_dofs][0] -
                         fe_q_other->get_unit_support_points()
                           [index_map_inverse_q_other[j + 1]][0]) < 1e-14)
             identities.emplace_back(i, j);
@@ -988,6 +998,66 @@ FE_SimplexP<dim, spacedim>::hp_line_dof_identities(
     }
 }
 
+
+template <int dim, int spacedim>
+std::vector<std::pair<unsigned int, unsigned int>>
+FE_SimplexP<dim, spacedim>::hp_quad_dof_identities(
+  const FiniteElement<dim, spacedim> &fe_other,
+  const unsigned int) const
+{
+  if (const FE_SimplexP<dim, spacedim> *fe_p_other =
+        dynamic_cast<const FE_SimplexP<dim, spacedim> *>(&fe_other))
+    {
+      std::vector<std::pair<unsigned int, unsigned int>> identities;
+
+      const auto         dpo = get_dpo_vector_fe_p(dim, this->degree);
+      const unsigned int n_vertex_dofs =
+        this->reference_cell().n_vertices() * dpo[0];
+      const unsigned int n_line_dofs =
+        this->reference_cell().n_lines() * dpo[1];
+      const unsigned int offset = n_vertex_dofs + n_line_dofs;
+
+      const auto dpo_other = get_dpo_vector_fe_p(dim, fe_p_other->degree);
+      const unsigned int n_vertex_dofs_other =
+        fe_p_other->reference_cell().n_vertices() * dpo_other[0];
+      const unsigned int n_line_dofs_other =
+        fe_p_other->reference_cell().n_lines() * dpo_other[1];
+      const unsigned int offset_other = n_vertex_dofs_other + n_line_dofs_other;
+
+      for (unsigned int i = 0; i < dpo[2]; ++i)
+        for (unsigned int j = 0; j < dpo_other[2]; ++j)
+          {
+            if (std::fabs(
+                  this->unit_support_points[i + offset][0] -
+                  fe_p_other->unit_support_points[i + offset_other][0]) < 1e-14)
+              identities.emplace_back(i, j);
+          }
+
+      return identities;
+    }
+  else if (dynamic_cast<const FE_Nothing<dim> *>(&fe_other) != nullptr)
+    {
+      // the FE_Nothing has no degrees of freedom, so there are no
+      // equivalencies to be recorded
+      return std::vector<std::pair<unsigned int, unsigned int>>();
+    }
+  else if (fe_other.n_unique_faces() == 1 && fe_other.n_dofs_per_face(0) == 0)
+    {
+      // if the other element has no elements on faces at all,
+      // then it would be impossible to enforce any kind of
+      // continuity even if we knew exactly what kind of element
+      // we have -- simply because the other element declares
+      // that it is discontinuous because it has no DoFs on
+      // its faces. in that case, just state that we have no
+      // constraints to declare
+      return std::vector<std::pair<unsigned int, unsigned int>>();
+    }
+  else
+    {
+      DEAL_II_NOT_IMPLEMENTED();
+      return std::vector<std::pair<unsigned int, unsigned int>>();
+    }
+}
 
 
 template <int dim, int spacedim>
@@ -1102,6 +1172,20 @@ FE_SimplexDGP<dim, spacedim>::hp_line_dof_identities(
   const FiniteElement<dim, spacedim> &fe_other) const
 {
   (void)fe_other;
+
+  return {};
+}
+
+
+
+template <int dim, int spacedim>
+std::vector<std::pair<unsigned int, unsigned int>>
+FE_SimplexDGP<dim, spacedim>::hp_quad_dof_identities(
+  const FiniteElement<dim, spacedim> &fe_other,
+  const unsigned int                  face_no) const
+{
+  (void)fe_other;
+  (void)face_no;
 
   return {};
 }
